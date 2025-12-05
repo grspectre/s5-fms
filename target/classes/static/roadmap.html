@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru" x-data="roadmapPage()">
+<head>
+    <meta charset="UTF-8">
+    <title>Путеводитель мигранта</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/css/style.css">
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .status { margin-top: 15px; padding: 10px; border-radius: 4px; }
+        .status-success { background: #e0f4e9; color: #055d1a; }
+        .status-error { background: #fdecea; color: #b00020; }
+        .buttons { margin-top: 20px; display: flex; gap: 10px; }
+        .btn { padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #1976d2; color: #fff; }
+        .btn-secondary { background: #9e9e9e; color: #fff; }
+        .btn-success { background: #2e7d32; color: #fff; }
+        .btn:disabled { opacity: 0.6; cursor: default; }
+        .recommendation { margin-top: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .recommendation-title { font-weight: bold; font-size: 1.1em; color: #0d47a1; }
+        .recommendation-date { color: #555; margin-top: 5px; font-size: 0.9em; }
+        .recommendation-desc { margin-top: 10px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Мой путеводитель</h1>
+    <p><a href="/">На главную</a> | <a href="/survey">К анкете</a></p>
+
+    <!-- Сообщения статуса -->
+    <template x-if="statusMessage">
+        <div class="status" :class="statusSuccess ? 'status-success' : 'status-error'">
+            <span x-text="statusMessage"></span>
+        </div>
+    </template>
+
+    <div class="buttons">
+        <button class="btn btn-primary"
+                @click="requestRoadmap()"
+                :disabled="loading">
+            <span x-show="!loading">Сформировать путеводитель</span>
+            <span x-show="loading">Обработка...</span>
+        </button>
+
+        <button class="btn btn-success"
+                @click="exportRoadmap()"
+                :disabled="loading || !hasRoadmap">
+            Экспортировать путеводитель (HTML)
+        </button>
+    </div>
+
+    <template x-if="hasRoadmap">
+        <div>
+            <h2 style="margin-top: 25px;">Сформированный путеводитель</h2>
+            <p>Дата создания: <span x-text="roadmap.createdDate"></span></p>
+
+            <template x-for="rec in sortedRecommendations" :key="rec.id">
+                <div class="recommendation">
+                    <div class="recommendation-title" x-text="rec.title"></div>
+                    <div class="recommendation-date">
+                        Дата выполнения: <span x-text="rec.executionDate"></span>
+                    </div>
+                    <div class="recommendation-desc" x-text="rec.description"></div>
+                </div>
+            </template>
+        </div>
+    </template>
+</div>
+
+<script>
+    function roadmapPage() {
+        return {
+            loading: false,
+            statusMessage: '',
+            statusSuccess: true,
+            roadmap: null,
+
+            get hasRoadmap() {
+                return this.roadmap !== null;
+            },
+
+            get sortedRecommendations() {
+                if (!this.roadmap || !this.roadmap.recommendations) return [];
+                return [...this.roadmap.recommendations].sort((a, b) => {
+                    const ao = a.displayOrder ?? 0;
+                    const bo = b.displayOrder ?? 0;
+                    return ao - bo;
+                });
+            },
+
+            setStatus(message, success = true) {
+                this.statusMessage = message;
+                this.statusSuccess = success;
+            },
+
+            // requestRoadmap() — GET /api/roadmap/generate
+            async requestRoadmap() {
+                this.loading = true;
+                this.setStatus('');
+
+                try {
+                    const resp = await fetch('/api/roadmap/generate');
+                    const data = await resp.json();
+
+                    if (!resp.ok || !data.success) {
+                        this.roadmap = null;
+                        this.setStatus(data.message || 'Ошибка при формировании путеводителя', false);
+                    } else {
+                        this.roadmap = data.data;
+                        this.setStatus(data.message || 'Путеводитель успешно сформирован', true);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.roadmap = null;
+                    this.setStatus('Ошибка при формировании путеводителя', false);
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            // exportRoadmap() — GET /api/roadmap/export, скачиваем roadmap.html
+            async exportRoadmap() {
+                if (!this.hasRoadmap) {
+                    this.setStatus('Сначала сформируйте путеводитель', false);
+                    return;
+                }
+
+                this.loading = true;
+                this.setStatus('');
+
+                try {
+                    const resp = await fetch('/api/roadmap/export');
+                    if (!resp.ok) {
+                        // пробуем прочитать тело как JSON с ошибкой
+                        try {
+                            const data = await resp.json();
+                            this.setStatus(data.message || 'Ошибка экспорта путеводителя', false);
+                        } catch (_) {
+                            this.setStatus('Ошибка экспорта путеводителя', false);
+                        }
+                        return;
+                    }
+
+                    const blob = await resp.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'roadmap.html';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+
+                    this.setStatus('Файл путеводителя успешно сформирован и скачан', true);
+                } catch (e) {
+                    console.error(e);
+                    this.setStatus('Ошибка экспорта путеводителя', false);
+                } finally {
+                    this.loading = false;
+                }
+            }
+        };
+    }
+</script>
+</body>
+</html>

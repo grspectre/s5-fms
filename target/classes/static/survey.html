@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru" x-data="surveyPage()" x-init="openForm()">
+<head>
+    <meta charset="UTF-8">
+    <title>Анкета мигранта</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="/css/style.css">
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        label { display: block; margin-top: 10px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; margin-top: 4px; }
+        .error { color: #b00020; font-size: 0.9em; }
+        .status { margin-top: 15px; padding: 10px; border-radius: 4px; }
+        .status-success { background: #e0f4e9; color: #055d1a; }
+        .status-error { background: #fdecea; color: #b00020; }
+        .buttons { margin-top: 20px; display: flex; gap: 10px; }
+        .btn { padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-primary { background: #1976d2; color: #fff; }
+        .btn-secondary { background: #9e9e9e; color: #fff; }
+        .btn-success { background: #2e7d32; color: #fff; }
+        .btn:disabled { opacity: 0.6; cursor: default; }
+        .field-inline { display: flex; align-items: center; gap: 10px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Анкета мигранта</h1>
+    <p><a href="/">На главную</a></p>
+
+    <!-- Сообщения статуса -->
+    <template x-if="statusMessage">
+        <div class="status" :class="statusSuccess ? 'status-success' : 'status-error'">
+            <span x-text="statusMessage"></span>
+        </div>
+    </template>
+
+    <!-- Форма анкеты -->
+    <form @submit.prevent="submitAnswers()">
+        <input type="hidden" x-model="form.id">
+
+        <label>
+            ФИО
+            <input type="text" x-model="form.fullName" placeholder="Иванов Иван Иванович">
+            <div class="error" x-text="errors.fullName"></div>
+        </label>
+
+        <label>
+            Гражданство
+            <input type="text" x-model="form.citizenship" placeholder="Страна гражданства">
+            <div class="error" x-text="errors.citizenship"></div>
+        </label>
+
+        <label>
+            Дата въезда
+            <input type="date" x-model="form.entryDate">
+            <div class="error" x-text="errors.entryDate"></div>
+        </label>
+
+        <label>
+            Цель пребывания
+            <select x-model="form.purposeOfStay">
+                <option value="">-- выберите цель --</option>
+                <option value="работа">Работа</option>
+                <option value="учёба">Учёба</option>
+                <option value="туризм">Туризм</option>
+                <option value="трудоустройство">Трудоустройство</option>
+                <option value="другое">Другое</option>
+            </select>
+            <div class="error" x-text="errors.purposeOfStay"></div>
+        </label>
+
+        <label>
+            Срок пребывания (дней)
+            <input type="number" min="1" x-model.number="form.durationOfStay" placeholder="Например, 90">
+            <div class="error" x-text="errors.durationOfStay"></div>
+        </label>
+
+        <label>
+            Наличие дактилоскопии
+            <div class="field-inline">
+                <select x-model="form.hasFingerprintsString">
+                    <option value="">-- выберите --</option>
+                    <option value="true">Есть</option>
+                    <option value="false">Нет</option>
+                </select>
+            </div>
+            <div class="error" x-text="errors.hasFingerprints"></div>
+        </label>
+
+        <label>
+            Наличие медосмотра
+            <div class="field-inline">
+                <select x-model="form.hasMedicalExamString">
+                    <option value="">-- выберите --</option>
+                    <option value="true">Пройден</option>
+                    <option value="false">Не пройден</option>
+                </select>
+            </div>
+            <div class="error" x-text="errors.hasMedicalExam"></div>
+        </label>
+
+        <div class="buttons">
+            <button type="submit"
+                    class="btn btn-primary"
+                    :disabled="loading">
+                <span x-show="!loading">Сохранить черновик</span>
+                <span x-show="loading">Сохранение...</span>
+            </button>
+
+            <button type="button"
+                    class="btn btn-success"
+                    :disabled="!form.id || loading"
+                    @click="confirmSave()">
+                Подтвердить сохранение
+            </button>
+
+            <a href="/roadmap" class="btn btn-secondary">Перейти к путеводителю</a>
+        </div>
+    </form>
+</div>
+
+<script>
+    function surveyPage() {
+        return {
+            loading: false,
+            statusMessage: '',
+            statusSuccess: true,
+            form: {
+                id: null,
+                fullName: '',
+                citizenship: '',
+                entryDate: '',
+                purposeOfStay: '',
+                durationOfStay: null,
+                hasFingerprintsString: '',
+                hasMedicalExamString: ''
+            },
+            errors: {},
+
+            setStatus(message, success = true) {
+                this.statusMessage = message;
+                this.statusSuccess = success;
+            },
+
+            clearErrors() {
+                this.errors = {};
+            },
+
+            // openForm() — GET /api/survey/open
+            async openForm() {
+                try {
+                    this.loading = true;
+                    this.setStatus('');
+                    const resp = await fetch('/api/survey/open');
+                    const data = await resp.json();
+
+                    if (data.success && data.data) {
+                        const s = data.data;
+                        this.form.id = s.id;
+                        this.form.fullName = s.fullName || '';
+                        this.form.citizenship = s.citizenship || '';
+                        this.form.entryDate = s.entryDate || '';
+                        this.form.purposeOfStay = s.purposeOfStay || '';
+                        this.form.durationOfStay = s.durationOfStay || null;
+                        this.form.hasFingerprintsString =
+                            s.hasFingerprints === null || s.hasFingerprints === undefined
+                                ? ''
+                                : String(s.hasFingerprints);
+                        this.form.hasMedicalExamString =
+                            s.hasMedicalExam === null || s.hasMedicalExam === undefined
+                                ? ''
+                                : String(s.hasMedicalExam);
+
+                        this.setStatus(data.message || 'Загружен сохранённый черновик', true);
+                    } else {
+                        // новая анкета
+                        this.form.id = null;
+                        this.setStatus(data.message || 'Новая анкета', true);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.setStatus('Ошибка при открытии анкеты', false);
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            // submitAnswers() — POST /api/survey/submit
+            async submitAnswers() {
+                this.clearErrors();
+                this.setStatus('');
+                this.loading = true;
+
+                // преобразуем select "true"/"false"/"" в boolean/ null
+                const payload = {
+                    id: this.form.id,
+                    fullName: this.form.fullName,
+                    citizenship: this.form.citizenship,
+                    entryDate: this.form.entryDate || null,
+                    purposeOfStay: this.form.purposeOfStay,
+                    durationOfStay: this.form.durationOfStay,
+                    hasFingerprints: this.form.hasFingerprintsString === '' ? null : this.form.hasFingerprintsString === 'true',
+                    hasMedicalExam: this.form.hasMedicalExamString === '' ? null : this.form.hasMedicalExamString === 'true',
+                    isDraft: true,
+                    isValid: false,
+                    version: null
+                };
+
+                try {
+                    const resp = await fetch('/api/survey/submit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await resp.json();
+
+                    if (!resp.ok) {
+                        // ошибки валидации
+                        if (data.errors) {
+                            this.errors = data.errors;
+                        }
+                        this.setStatus(data.message || 'Ошибки валидации', false);
+                    } else {
+                        // успешное сохранение черновика
+                        const s = data.data;
+                        this.form.id = s.id;
+                        this.setStatus(data.message || 'Черновик сохранён', true);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.setStatus('Ошибка при сохранении анкеты', false);
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            // confirmSave() — POST /api/survey/confirm/{id}
+            async confirmSave() {
+                if (!this.form.id) {
+                    this.setStatus('Сначала сохраните черновик анкеты', false);
+                    return;
+                }
+                this.loading = true;
+                this.setStatus('');
+
+                try {
+                    const resp = await fetch(`/api/survey/confirm/${this.form.id}`, {
+                        method: 'POST'
+                    });
+                    const data = await resp.json();
+
+                    if (!resp.ok || !data.success) {
+                        this.setStatus(data.message || 'Ошибка при окончательном сохранении', false);
+                    } else {
+                        this.setStatus(data.message || 'Анкета окончательно сохранена', true);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.setStatus('Ошибка при окончательном сохранении', false);
+                } finally {
+                    this.loading = false;
+                }
+            }
+        };
+    }
+</script>
+</body>
+</html>
